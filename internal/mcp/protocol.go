@@ -30,7 +30,7 @@ type rpcError struct {
 func (c *Client) request(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 	c.mu.Lock()
 
-	// mutex to prevent concurrent reqs. each client will have its own agent assigned
+	// mutex to prevent concurrent reqs each client will have its own agent assigned
 	// so this lock is only to prevent interleaving of requests and responses on the same client
 	defer c.mu.Unlock()
 

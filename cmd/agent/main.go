@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pocketradio/polity/internal/decision"
 	"github.com/pocketradio/polity/internal/mcp"
 	"github.com/pocketradio/polity/internal/recording"
 )
@@ -40,6 +41,7 @@ func main() {
 
 	// read the rules and enter a development match before the turn loop
 	strategy := getenv("POLITY_STRATEGY", "Play conservatively. Preserve troops and avoid unnecessary combat.")
+	engine := decision.FromEnv()
 	// stop when the rules request fails
 	if _, err := callAndRecord(ctx, client, recorder, "rules", nil, "rules"); err != nil {
 		fatal(err)
@@ -66,9 +68,26 @@ func main() {
 			return
 		}
 
-		// submit no actions until the decision function is introduced
+		// choose actions from the configured llm or use the empty fallback
+		decisionStarted := time.Now()
+		actions, rawDecision, decisionErr := engine.Choose(ctx, strategy, state)
+		// fall back to no actions when the llm request or parsing fails
+		if decisionErr != nil {
+			actions = []any{}
+		}
+		_ = recorder.Write(recording.Decision{
+			Timestamp: time.Now().UTC(),
+			Step:      fmt.Sprintf("decide-%d", turn),
+			Tool:      "llm_decision",
+			Input:     map[string]any{"strategy": strategy, "state": state},
+			Output:    rawDecision,
+			LatencyMS: time.Since(decisionStarted).Milliseconds(),
+			Error:     errorText(decisionErr),
+		})
+
+		// submit the selected action batch through artifice
 		if _, err := callAndRecord(ctx, client, recorder, "submit_actions", map[string]any{
-			"actions": []any{},
+			"actions": actions,
 		}, fmt.Sprintf("submit-%d", turn)); err != nil {
 			// stop when action submission fails
 			fatal(err)
